@@ -1,0 +1,79 @@
+global:
+  resolve_timeout: 5m
+
+  # ── SMTP (Email alerts) ──────────────────────
+  # smtp_smarthost: "smtp.gmail.com:587"
+  # smtp_from: "alerts@yourdomain.com"
+  # smtp_auth_username: "alerts@yourdomain.com"
+  # smtp_auth_password: "your-app-password"
+  # smtp_require_tls: true
+
+# ─────────────────────────────────────────────
+# Templates
+# ─────────────────────────────────────────────
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# ─────────────────────────────────────────────
+# Routing Tree
+# ─────────────────────────────────────────────
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s          # Wait before sending first alert in a group
+  group_interval: 5m       # Wait before sending updated alerts
+  repeat_interval: 12h     # How often to re-send ongoing alerts
+  receiver: "default"
+
+  routes:
+    # Critical alerts go immediately
+    - match:
+        severity: critical
+      receiver: "critical-alerts"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts are batched
+    - match:
+        severity: warning
+      receiver: "default"
+      group_wait: 1m
+      repeat_interval: 4h
+
+# ─────────────────────────────────────────────
+# Inhibition Rules
+# ─────────────────────────────────────────────
+inhibit_rules:
+  # If a critical alert fires, suppress the matching warning
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "instance"]
+
+# ─────────────────────────────────────────────
+# Receivers
+# ─────────────────────────────────────────────
+receivers:
+
+  - name: "default"
+    # Uncomment and configure your preferred channel:
+
+    # slack_configs:
+    #   - api_url: "${SLACK_WEBHOOK_URL}"
+    #     channel: "#alerts"
+    #     title: '{{ template "slack.default.title" . }}'
+    #     text: '{{ template "slack.default.text" . }}'
+    #     send_resolved: true
+
+    # email_configs:
+    #   - to: "ops-team@yourdomain.com"
+    #     send_resolved: true
+
+  - name: "critical-alerts"
+    # slack_configs:
+    #   - api_url: "${SLACK_WEBHOOK_URL}"
+    #     channel: "#critical-alerts"
+    #     color: "danger"
+    #     title: "🚨 CRITICAL: {{ .GroupLabels.alertname }}"
+    #     text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+    #     send_resolved: true
