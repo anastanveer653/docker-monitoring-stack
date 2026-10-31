@@ -1,0 +1,198 @@
+# Unit tests for alerting rules.
+# Run: ./scripts/validate.sh   (or: promtool test rules prometheus/tests/*.yml)
+
+rule_files:
+  - ../rules/recording.yml
+  - ../rules/host.yml
+  - ../rules/containers.yml
+  - ../rules/endpoints.yml
+  - ../rules/stack.yml
+
+evaluation_interval: 1m
+
+tests:
+
+  # ── Host CPU: warning only at 90% ───────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_cpu_seconds_total{cpu="0",mode="idle",instance="docker-host",job="node-exporter"}'
+        values: "0+6x40"          # 6s idle per 60s = 10% idle -> 90% busy
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostHighCpuUsage
+        exp_alerts: []            # still pending (for: 10m)
+      - eval_time: 20m
+        alertname: HostHighCpuUsage
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+            exp_annotations:
+              summary: "High CPU usage on docker-host"
+              description: "CPU usage is 90% (threshold 85%)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighcpuusage"
+
+  # ── Host CPU: warning + critical at ~97% ────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_cpu_seconds_total{cpu="0",mode="idle",instance="docker-host",job="node-exporter"}'
+        values: "0+2x40"          # 2s idle per 60s -> 96.67% busy
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HostHighCpuUsage
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+            exp_annotations:
+              summary: "High CPU usage on docker-host"
+              description: "CPU usage is 96.67% (threshold 85%)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighcpuusage"
+          - exp_labels:
+              severity: critical
+              instance: docker-host
+            exp_annotations:
+              summary: "Critical CPU usage on docker-host"
+              description: "CPU usage is 96.67% (threshold 95%)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighcpuusage"
+
+  # ── Disk: read-only filesystems are ignored ─────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "150x15"
+      - series: 'node_filesystem_size_bytes{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "1000x15"
+      - series: 'node_filesystem_readonly{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "0x15"
+      - series: 'node_filesystem_avail_bytes{instance="docker-host",device="/dev/loop0",mountpoint="/snap",fstype="ext4"}'
+        values: "10x15"
+      - series: 'node_filesystem_size_bytes{instance="docker-host",device="/dev/loop0",mountpoint="/snap",fstype="ext4"}'
+        values: "1000x15"
+      - series: 'node_filesystem_readonly{instance="docker-host",device="/dev/loop0",mountpoint="/snap",fstype="ext4"}'
+        values: "1x15"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HostDiskSpaceLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              device: /dev/sda1
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: "Disk space low on docker-host (/)"
+              description: "Disk usage is 85% (threshold 80%)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskspacelow"
+
+  # ── Containers: only containers WITH a memory limit alert ───
+  # Regression test: an unlimited container reports limit=0, which used to
+  # divide to +Inf and fire for every container.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{name="api",id="/docker/a"}'
+        values: "900x15"
+      - series: 'container_spec_memory_limit_bytes{name="api",id="/docker/a"}'
+        values: "1000x15"
+      - series: 'container_memory_working_set_bytes{name="unlimited",id="/docker/b"}'
+        values: "500x15"
+      - series: 'container_spec_memory_limit_bytes{name="unlimited",id="/docker/b"}'
+        values: "0x15"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ContainerHighMemoryUsage
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: api
+            exp_annotations:
+              summary: "Container api close to its memory limit"
+              description: "Container api is using 90% of its memory limit."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerhighmemoryusage"
+
+  # ── Containers: a container that disappears is reported ─────
+  - interval: 1m
+    input_series:
+      - series: 'container_last_seen{name="web",id="/docker/c"}'
+        values: "0+60x5 _x15"     # running for 5 minutes, then gone
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ContainerDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: web
+            exp_annotations:
+              summary: "Container web disappeared"
+              description: "Container web was running in the last 15 minutes but has not been seen for 5m 0s."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerdown"
+
+  # ── Endpoints: probe failures ───────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'probe_success{instance="https://example.com",job="blackbox-http"}'
+        values: "1 1 0x10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: EndpointDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: EndpointDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: https://example.com
+              job: blackbox-http
+            exp_annotations:
+              summary: "Endpoint https://example.com is down"
+              description: "Probe blackbox-http has been failing for more than 2 minutes."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#endpointdown"
+
+  # ── Endpoints: certificate expiring in 10 days -> warning ───
+  - interval: 1m
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{instance="https://example.com",job="blackbox-http"}'
+        values: "864000x80"       # expires at t = 10 days
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: SslCertificateExpiringSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: https://example.com
+              job: blackbox-http
+            exp_annotations:
+              summary: "TLS certificate for https://example.com expires soon"
+              description: "The certificate expires in 9d 22h 50m 0s."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#sslcertificateexpiringsoon"
+
+  # ── Stack: scrape target down + heartbeat ───────────────────
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="docker-host"}'
+        values: "0x5"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: node-exporter
+              instance: docker-host
+            exp_annotations:
+              summary: "Scrape target docker-host (node-exporter) is down"
+              description: "Prometheus has failed to scrape docker-host for more than 2 minutes."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#targetdown"
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: "Alerting pipeline heartbeat"
+              description: "This alert is always firing. If it stops arriving, the alerting pipeline is broken."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#watchdog"

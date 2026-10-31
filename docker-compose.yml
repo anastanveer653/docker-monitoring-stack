@@ -1,137 +1,202 @@
-version: "3.8"
+name: monitoring
 
 # ─────────────────────────────────────────────
-# Networks
+# Shared settings
 # ─────────────────────────────────────────────
+x-defaults: &defaults
+  restart: unless-stopped
+  networks:
+    - monitoring
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 networks:
   monitoring:
+    name: monitoring
     driver: bridge
 
-# ─────────────────────────────────────────────
-# Volumes (persistent data)
-# ─────────────────────────────────────────────
 volumes:
   prometheus_data: {}
   grafana_data: {}
   alertmanager_data: {}
 
-# ─────────────────────────────────────────────
-# Services
-# ─────────────────────────────────────────────
 services:
 
   # ── Prometheus ──────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.51.0
+    <<: *defaults
+    image: prom/prometheus:v3.15.1
     container_name: prometheus
-    restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "${BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/rules/:/etc/prometheus/rules/:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - ./prometheus/targets:/etc/prometheus/targets:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=30d"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--web.enable-lifecycle"          # Allows hot-reload via POST /-/reload
-      - "--web.enable-admin-api"
-    networks:
-      - monitoring
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
+      - "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-10GB}"
+      - "--web.enable-lifecycle"          # POST /-/reload for hot-reload
+      - "--web.external-url=${PROMETHEUS_EXTERNAL_URL:-http://localhost:9090}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
     depends_on:
-      - node-exporter
-      - cadvisor
-
-  # ── Grafana ─────────────────────────────────
-  grafana:
-    image: grafana/grafana:10.4.2
-    container_name: grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_DOMAIN=${GRAFANA_DOMAIN:-localhost}
-      - GF_ANALYTICS_REPORTING_ENABLED=false
-      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    networks:
-      - monitoring
-    depends_on:
-      - prometheus
+      alertmanager:
+        condition: service_healthy
 
   # ── Alertmanager ────────────────────────────
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    <<: *defaults
+    image: prom/alertmanager:v0.34.2
     container_name: alertmanager
-    restart: unless-stopped
     ports:
-      - "9093:9093"
+      - "${BIND_ADDRESS:-127.0.0.1}:9093:9093"
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+      - ./alertmanager/secrets:/etc/alertmanager/secrets:ro
       - alertmanager_data:/alertmanager
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
-      - "--web.external-url=http://localhost:9093"
-    networks:
-      - monitoring
+      - "--web.external-url=${ALERTMANAGER_EXTERNAL_URL:-http://localhost:9093}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  # ── Grafana ─────────────────────────────────
+  grafana:
+    <<: *defaults
+    image: grafana/grafana:13.3.0
+    container_name: grafana
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set - run ./scripts/setup.sh or copy .env.example to .env}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/host-overview.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    depends_on:
+      prometheus:
+        condition: service_healthy
 
   # ── Node Exporter (host metrics) ────────────
   node-exporter:
-    image: prom/node-exporter:v1.7.0
+    <<: *defaults
+    image: prom/node-exporter:v1.12.1
     container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "9100:9100"
+    pid: host
+    read_only: true
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
     command:
       - "--path.procfs=/host/proc"
-      - "--path.rootfs=/rootfs"
       - "--path.sysfs=/host/sys"
-      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-    networks:
-      - monitoring
+      - "--path.rootfs=/rootfs"
+      # Last three alternatives drop duplicate mounts seen on Docker Desktop (WSL2)
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|var/lib/docker/.+|parent-distro|usr/lib/(modules|wsl)|mnt/host/wsl.*)($$|/)"
+      - "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|tmpfs)$$"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9100/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
 
   # ── cAdvisor (container metrics) ────────────
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    <<: *defaults
+    image: ghcr.io/google/cadvisor:v0.60.6
     container_name: cadvisor
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    privileged: true
+    privileged: true            # Required to read cgroup stats for every container
+    devices:
+      - /dev/kmsg
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:rw
+      - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
-    devices:
-      - /dev/kmsg
-    networks:
-      - monitoring
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=15s"
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+      - "--disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   # ── Blackbox Exporter (endpoint probing) ────
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.24.0
+    <<: *defaults
+    image: prom/blackbox-exporter:v0.29.1
     container_name: blackbox-exporter
-    restart: unless-stopped
-    ports:
-      - "9115:9115"
+    read_only: true
     volumes:
       - ./prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
-    networks:
-      - monitoring
+    command:
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9115/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M

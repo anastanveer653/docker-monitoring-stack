@@ -1,10 +1,11 @@
-# Environment secrets
+# Environment & secrets
 .env
+alertmanager/secrets/*
+!alertmanager/secrets/README.md
+!alertmanager/secrets/.gitkeep
 
-# Grafana persistent data
+# Local data (if bind mounts are used instead of named volumes)
 grafana/data/
-
-# Prometheus persistent data
 prometheus/data/
 
 # OS

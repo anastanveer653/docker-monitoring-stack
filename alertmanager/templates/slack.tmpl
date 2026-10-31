@@ -1,0 +1,13 @@
+{{/* Slack notification templates — referenced from alertmanager.yml */}}
+
+{{ define "slack.custom.title" -}}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ with .CommonLabels.instance }} on {{ . }}{{ end }}
+{{- end }}
+
+{{ define "slack.custom.text" -}}
+{{ range .Alerts -}}
+*{{ .Labels.severity | toUpper }}* — {{ .Annotations.summary }}
+{{ .Annotations.description }}
+{{ with .Annotations.runbook_url }}:book: <{{ . }}|Runbook>{{ end }}
+{{ end -}}
+{{- end }}

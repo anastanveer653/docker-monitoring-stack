@@ -1,0 +1,113 @@
+# Warning and critical variants share an alert name so that Alertmanager's
+# inhibition rule (equal: alertname, instance) mutes the warning when the
+# critical one fires.
+groups:
+  - name: host.rules
+    rules:
+
+      - alert: HostHighCpuUsage
+        expr: instance:node_cpu_utilisation:ratio > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold 85%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighcpuusage"
+
+      - alert: HostHighCpuUsage
+        expr: instance:node_cpu_utilisation:ratio > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold 95%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighcpuusage"
+
+      - alert: HostHighMemoryUsage
+        expr: instance:node_memory_utilisation:ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold 85%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighmemoryusage"
+
+      - alert: HostHighMemoryUsage
+        expr: instance:node_memory_utilisation:ratio > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold 95%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighmemoryusage"
+
+      - alert: HostDiskSpaceLow
+        expr: |
+          (1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) > 0.80
+            and on (instance, device, mountpoint) node_filesystem_readonly == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold 80%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskspacelow"
+
+      - alert: HostDiskSpaceLow
+        expr: |
+          (1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) > 0.90
+            and on (instance, device, mountpoint) node_filesystem_readonly == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk almost full on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold 90%)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskspacelow"
+
+      - alert: HostDiskWillFillIn24Hours
+        expr: |
+          predict_linear(node_filesystem_avail_bytes[6h], 24 * 3600) < 0
+            and on (instance, device, mountpoint) node_filesystem_readonly == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk {{ $labels.mountpoint }} on {{ $labels.instance }} will fill within 24h"
+          description: "At the current write rate the filesystem runs out of space within 24 hours."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskwillfillin24hours"
+
+      - alert: HostOutOfInodes
+        expr: |
+          node_filesystem_files_free / node_filesystem_files < 0.10
+            and on (instance, device, mountpoint) node_filesystem_readonly == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Running out of inodes on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Only {{ $value | humanizePercentage }} of inodes are free."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostoutofinodes"
+
+      - alert: HostHighLoad
+        expr: node_load5 / instance:node_num_cpu:sum > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High load average on {{ $labels.instance }}"
+          description: "5-minute load average is {{ $value | printf \"%.2f\" }}x the number of CPU cores."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighload"
+
+      - alert: HostOomKillDetected
+        expr: increase(node_vmstat_oom_kill[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "OOM kill detected on {{ $labels.instance }}"
+          description: "The kernel OOM killer terminated at least one process in the last 5 minutes."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostoomkilldetected"

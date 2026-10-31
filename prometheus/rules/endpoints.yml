@@ -1,0 +1,43 @@
+groups:
+  - name: blackbox.rules
+    rules:
+
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Probe {{ $labels.job }} has been failing for more than 2 minutes."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#endpointdown"
+
+      - alert: EndpointSlowResponse
+        expr: avg_over_time(probe_duration_seconds[5m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow response from {{ $labels.instance }}"
+          description: "Average probe duration is {{ $value | humanizeDuration }} (threshold 2s)."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#endpointslowresponse"
+
+      - alert: SslCertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate for {{ $labels.instance }} expires soon"
+          description: "The certificate expires in {{ $value | humanizeDuration }}."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#sslcertificateexpiringsoon"
+
+      - alert: SslCertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 3 * 86400
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS certificate for {{ $labels.instance }} is about to expire"
+          description: "The certificate expires in {{ $value | humanizeDuration }}."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#sslcertificateexpiringsoon"

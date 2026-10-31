@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ShellCheck
+        run: shellcheck -x scripts/*.sh
+
+      - name: yamllint
+        run: pipx run yamllint --strict .
+
+  validate:
+    name: Validate configs & test alert rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # docker compose config, promtool check + unit tests, amtool, dashboard JSON
+      - name: Validate
+        run: ./scripts/validate.sh
+
+  smoke-test:
+    name: Smoke test (full stack)
+    needs: [lint, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Generate .env
+        run: ./scripts/setup.sh
+
+      - name: Start stack
+        run: docker compose up -d --wait --wait-timeout 240
+
+      - name: Run smoke tests
+        run: ./scripts/smoke-test.sh
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
