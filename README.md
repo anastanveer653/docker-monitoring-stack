@@ -24,7 +24,7 @@ Configured as code, secure by default, and tested in CI on every commit.
 
 - **Up in one command.** `./scripts/start.sh` generates a `.env` with a random password, starts six services in dependency order, and waits until every healthcheck passes.
 - **4 dashboards, provisioned as code.** Host, Docker containers, endpoint uptime and TLS expiry, and the health of the monitoring stack itself.
-- **21 alerts with tests.** Every rule has a [runbook](docs/runbooks.md) and is covered by [`promtool` unit tests](prometheus/tests/alerts_test.yml). That includes predictive alerts (*disk full within 24h*) and a dead man's switch (`Watchdog`).
+- **21 alerts, every one unit-tested.** Each alert has a [runbook](docs/runbooks.md) and [`promtool` unit tests](prometheus/tests/alerts_test.yml) that check it fires, when it fires, and what the message says. Many tests also check that it stays quiet for healthy targets. CI fails if an alert is added without a test or a runbook. The set includes a predictive alert (*disk full within 24h*) and a dead man's switch (`Watchdog`).
 - **Secure by default.** UIs listen on `127.0.0.1` only, exporters are not published on the host, the Prometheus admin API is off, secrets are kept in files outside git, and every container has `no-new-privileges` and resource limits.
 - **Tested in CI.** Every push runs ShellCheck, yamllint, `promtool`, `amtool` and the rule tests, then **starts the whole stack inside GitHub Actions** and runs end-to-end [smoke tests](scripts/smoke-test.sh).
 - **Add targets without restarting.** Put a YAML file in `prometheus/targets/` and Prometheus picks it up within 30 seconds. Config changes are validated before they are hot-reloaded.
@@ -216,7 +216,7 @@ Uncomment the `slack_configs` blocks in [`alertmanager/alertmanager.yml`](alertm
 The [CI workflow](.github/workflows/ci.yml) runs three jobs on every push and pull request:
 
 1. **Lint:** ShellCheck on all scripts, `yamllint --strict` on all YAML.
-2. **Validate:** `docker compose config`, `promtool check config`, `promtool test rules`, `amtool check-config`, and checks on the dashboard JSON.
+2. **Validate:** `docker compose config`, `promtool check config`, `promtool test rules` (unit tests for all 21 alerts), an alert coverage check (every alert must have a test and a runbook), `amtool check-config`, and checks on the dashboard JSON.
 3. **Smoke test:** starts the full stack on a GitHub runner, then checks that every target is up, host and container metrics arrive, recording rules produce data, no rule group has errors, the `Watchdog` alert reaches Alertmanager, and Grafana has provisioned every dashboard and can query Prometheus.
 
 Run the same checks locally. Docker is the only requirement, because every tool runs in a container pinned to the versions in `docker-compose.yml`:

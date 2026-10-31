@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-10-31
+
+### Added
+- Unit tests for the 13 alerts that had none. All 21 alerts are now covered by `promtool` tests, and many include a healthy series that must not alert.
+- Alert coverage check in `scripts/validate.sh` and CI: the build fails if an alert has no unit test or no runbook section.
+
+### Fixed
+- The README and repository description claimed every alert was tested, but only 8 of 21 were.
+
 ## [2.0.0] - 2026-10-31
 
 ### Added
@@ -47,5 +56,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - Initial release: Prometheus, Grafana, Alertmanager, Node Exporter, cAdvisor and Blackbox Exporter with Docker Compose.
 
+[2.0.1]: https://github.com/anastanveer653/docker-monitoring-stack/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/anastanveer653/docker-monitoring-stack/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/anastanveer653/docker-monitoring-stack/releases/tag/v1.0.0

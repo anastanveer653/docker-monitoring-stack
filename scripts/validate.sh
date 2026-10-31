@@ -27,13 +27,27 @@ docker run --rm --entrypoint promtool -w /work/prometheus \
   -v "${MOUNT_DIR}:/work:ro" \
   "${PROMETHEUS_IMAGE}" test rules tests/alerts_test.yml
 
+info "Alert coverage: every alert needs a unit test and a runbook"
+cd "${ROOT_DIR}"   # relative paths work for both native and Windows tools
+missing=0
+alerts="$(grep -h -E '^\s*- alert:' prometheus/rules/*.yml | awk '{print $3}' | sort -u)"
+for alert in ${alerts}; do
+  if ! grep -q -E "alertname: ${alert}\s*$" prometheus/tests/alerts_test.yml; then
+    warn "${alert} has no test in prometheus/tests/alerts_test.yml"; missing=1
+  fi
+  if ! grep -q -E "^### ${alert}\s*$" docs/runbooks.md; then
+    warn "${alert} has no section in docs/runbooks.md"; missing=1
+  fi
+done
+(( missing == 0 )) || die "alert coverage is incomplete"
+ok "$(wc -w <<< "${alerts}" | tr -d ' ') alerts, all with unit tests and runbooks"
+
 info "amtool check-config (${ALERTMANAGER_IMAGE})"
 docker run --rm --entrypoint amtool \
   -v "${MOUNT_DIR}/alertmanager:/etc/alertmanager:ro" \
   "${ALERTMANAGER_IMAGE}" check-config /etc/alertmanager/alertmanager.yml
 
 info "Grafana dashboards"
-cd "${ROOT_DIR}"   # relative paths work for both native and Windows tools
 uids=()
 for dashboard in grafana/dashboards/*.json; do
   if command -v jq >/dev/null 2>&1; then
