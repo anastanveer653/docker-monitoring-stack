@@ -1,0 +1,74 @@
+# Meta-monitoring: alerts about the monitoring stack itself.
+groups:
+  - name: stack.rules
+    rules:
+
+      # Always firing. Route it to a dead man's switch (e.g. Healthchecks.io)
+      # so you are paged when the alerting pipeline itself stops working.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Alerting pipeline heartbeat"
+          description: "This alert is always firing. If it stops arriving, the alerting pipeline is broken."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#watchdog"
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scrape target {{ $labels.instance }} ({{ $labels.job }}) is down"
+          description: "Prometheus has failed to scrape {{ $labels.instance }} for more than 2 minutes."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#targetdown"
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus configuration reload failed"
+          description: "The last configuration reload failed; Prometheus is still running the previous config."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusconfigreloadfailed"
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus rule evaluation failures"
+          description: "{{ $value | printf \"%.0f\" }} rule evaluations failed in the last 5 minutes. Alerts may be missed."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusruleevaluationfailures"
+
+      - alert: PrometheusAlertmanagerUnreachable
+        expr: prometheus_notifications_alertmanagers_discovered < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus cannot reach Alertmanager"
+          description: "No Alertmanager instance is discovered; alerts are not being delivered."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusalertmanagerunreachable"
+
+      - alert: AlertmanagerConfigReloadFailed
+        expr: alertmanager_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager configuration reload failed"
+          description: "The last Alertmanager configuration reload failed; it is still running the previous config."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#alertmanagerconfigreloadfailed"
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: sum by (integration) (rate(alertmanager_notifications_failed_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager is failing to send {{ $labels.integration }} notifications"
+          description: "Notifications through {{ $labels.integration }} have been failing for 5 minutes."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#alertmanagernotificationsfailing"

@@ -1,0 +1,21 @@
+# Recording rules pre-compute expressions once per evaluation cycle so that
+# alerts and dashboards stay cheap. Naming convention: level:metric:operations
+groups:
+  - name: node.recording
+    rules:
+      - record: instance:node_cpu_utilisation:ratio
+        expr: 1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+
+      - record: instance:node_memory_utilisation:ratio
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+
+      - record: instance:node_num_cpu:sum
+        expr: count without (cpu, mode) (node_cpu_seconds_total{mode="idle"})
+
+  - name: container.recording
+    rules:
+      - record: name:container_cpu_usage_seconds:rate5m
+        expr: sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m]))
+
+      - record: name:container_memory_working_set_bytes:sum
+        expr: sum by (name) (container_memory_working_set_bytes{name!=""})

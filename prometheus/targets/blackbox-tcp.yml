@@ -1,0 +1,6 @@
+# TCP endpoints probed by the Blackbox Exporter (module: tcp_connect).
+# Format is host:port. Prometheus re-reads this file every 30s.
+- targets:
+    - alertmanager:9093
+  labels:
+    group: "default"

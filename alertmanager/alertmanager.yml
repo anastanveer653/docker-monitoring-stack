@@ -1,79 +1,97 @@
+# Alertmanager does NOT expand environment variables in this file.
+# Secrets (webhook URLs, SMTP passwords) are read from files mounted at
+# /etc/alertmanager/secrets/ — see alertmanager/secrets/README.md.
+
 global:
   resolve_timeout: 5m
 
-  # ── SMTP (Email alerts) ──────────────────────
+  # ── SMTP (email alerts) ──────────────────────
   # smtp_smarthost: "smtp.gmail.com:587"
-  # smtp_from: "alerts@yourdomain.com"
-  # smtp_auth_username: "alerts@yourdomain.com"
-  # smtp_auth_password: "your-app-password"
+  # smtp_from: "alerts@example.com"
+  # smtp_auth_username: "alerts@example.com"
+  # smtp_auth_password_file: /etc/alertmanager/secrets/smtp-password
   # smtp_require_tls: true
 
-# ─────────────────────────────────────────────
-# Templates
-# ─────────────────────────────────────────────
 templates:
   - "/etc/alertmanager/templates/*.tmpl"
 
 # ─────────────────────────────────────────────
-# Routing Tree
+# Routing tree
 # ─────────────────────────────────────────────
 route:
-  group_by: ["alertname", "severity"]
-  group_wait: 30s          # Wait before sending first alert in a group
-  group_interval: 5m       # Wait before sending updated alerts
-  repeat_interval: 12h     # How often to re-send ongoing alerts
   receiver: "default"
+  group_by: ["alertname", "instance"]
+  group_wait: 30s          # Wait before sending the first notification for a group
+  group_interval: 5m       # Wait before sending updates for a group
+  repeat_interval: 12h     # Re-send interval for alerts that are still firing
 
   routes:
-    # Critical alerts go immediately
-    - match:
-        severity: critical
-      receiver: "critical-alerts"
+    # Heartbeat — send to a dead man's switch, never to humans
+    - matchers: ['alertname = "Watchdog"']
+      receiver: "watchdog"
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+
+    # Critical alerts: notify fast, repeat often
+    - matchers: ['severity = "critical"']
+      receiver: "critical"
       group_wait: 10s
       repeat_interval: 1h
 
-    # Warning alerts are batched
-    - match:
-        severity: warning
+    # Warnings: batched
+    - matchers: ['severity = "warning"']
       receiver: "default"
       group_wait: 1m
       repeat_interval: 4h
 
 # ─────────────────────────────────────────────
-# Inhibition Rules
+# Inhibition rules
 # ─────────────────────────────────────────────
 inhibit_rules:
-  # If a critical alert fires, suppress the matching warning
-  - source_match:
-      severity: "critical"
-    target_match:
-      severity: "warning"
+  # A critical alert mutes the warning variant of the same alert
+  - source_matchers: ['severity = "critical"']
+    target_matchers: ['severity = "warning"']
     equal: ["alertname", "instance"]
+
+  # If a scrape target is down, mute every other alert for that instance
+  - source_matchers: ['alertname = "TargetDown"']
+    target_matchers: ['alertname != "TargetDown"']
+    equal: ["instance"]
+
+  # If cAdvisor is down, every container looks "down" — mute those
+  - source_matchers: ['alertname = "TargetDown"', 'job = "cadvisor"']
+    target_matchers: ['alertname =~ "Container.*"']
 
 # ─────────────────────────────────────────────
 # Receivers
 # ─────────────────────────────────────────────
+# With no integrations configured, alerts are still visible in the
+# Alertmanager UI (http://localhost:9093) and in Grafana.
 receivers:
 
   - name: "default"
-    # Uncomment and configure your preferred channel:
-
     # slack_configs:
-    #   - api_url: "${SLACK_WEBHOOK_URL}"
+    #   - api_url_file: /etc/alertmanager/secrets/slack-webhook-url
     #     channel: "#alerts"
-    #     title: '{{ template "slack.default.title" . }}'
-    #     text: '{{ template "slack.default.text" . }}'
     #     send_resolved: true
+    #     title: '{{ template "slack.custom.title" . }}'
+    #     text: '{{ template "slack.custom.text" . }}'
 
     # email_configs:
-    #   - to: "ops-team@yourdomain.com"
+    #   - to: "ops-team@example.com"
     #     send_resolved: true
 
-  - name: "critical-alerts"
+  - name: "critical"
     # slack_configs:
-    #   - api_url: "${SLACK_WEBHOOK_URL}"
-    #     channel: "#critical-alerts"
-    #     color: "danger"
-    #     title: "🚨 CRITICAL: {{ .GroupLabels.alertname }}"
-    #     text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+    #   - api_url_file: /etc/alertmanager/secrets/slack-webhook-url
+    #     channel: "#alerts-critical"
     #     send_resolved: true
+    #     color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+    #     title: '{{ template "slack.custom.title" . }}'
+    #     text: '{{ template "slack.custom.text" . }}'
+
+  - name: "watchdog"
+    # webhook_configs:
+    #   - url_file: /etc/alertmanager/secrets/watchdog-url   # e.g. https://hc-ping.com/<uuid>
+    #     send_resolved: false

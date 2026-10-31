@@ -1,0 +1,49 @@
+groups:
+  - name: container.rules
+    rules:
+
+      # last_over_time keeps a removed container's last timestamp around for
+      # 15 minutes, so a container that stops or crashes is reported for that
+      # window instead of silently disappearing from the metrics.
+      - alert: ContainerDown
+        expr: time() - max by (name) (last_over_time(container_last_seen{name!=""}[15m])) > 60
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} disappeared"
+          description: "Container {{ $labels.name }} was running in the last 15 minutes but has not been seen for {{ $value | humanizeDuration }}."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerdown"
+
+      - alert: ContainerHighCpuUsage
+        expr: name:container_cpu_usage_seconds:rate5m > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} high CPU"
+          description: "Container {{ $labels.name }} is using {{ $value | humanizePercentage }} of one CPU core."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerhighcpuusage"
+
+      # Only containers with a memory limit are evaluated: cAdvisor reports a
+      # limit of 0 for unlimited containers, which would otherwise divide to +Inf.
+      - alert: ContainerHighMemoryUsage
+        expr: |
+          name:container_memory_working_set_bytes:sum
+            / max by (name) (container_spec_memory_limit_bytes{name!=""} > 0)
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} close to its memory limit"
+          description: "Container {{ $labels.name }} is using {{ $value | humanizePercentage }} of its memory limit."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerhighmemoryusage"
+
+      - alert: ContainerOomKilled
+        expr: increase(container_oom_events_total{name!=""}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} was OOM-killed"
+          description: "Container {{ $labels.name }} hit its memory limit and was killed by the kernel."
+          runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containeroomkilled"

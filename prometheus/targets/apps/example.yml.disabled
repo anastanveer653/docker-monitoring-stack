@@ -1,0 +1,7 @@
+# Rename to example.yml (or create any *.yml here) to start scraping your apps.
+# Each target must expose Prometheus metrics at /metrics.
+- targets:
+    - "my-api:8080"
+  labels:
+    service: "my-api"
+    env: "dev"

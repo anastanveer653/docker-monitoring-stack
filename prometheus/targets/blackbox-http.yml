@@ -1,0 +1,8 @@
+# HTTP(S) endpoints probed by the Blackbox Exporter (module: http_2xx).
+# Prometheus re-reads this file every 30s — no restart or reload required.
+- targets:
+    - http://grafana:3000/api/health      # The stack's own Grafana
+    - https://github.com
+    - https://www.google.com
+  labels:
+    group: "default"

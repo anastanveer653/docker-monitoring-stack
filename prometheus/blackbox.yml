@@ -9,8 +9,6 @@ modules:
       method: GET
       follow_redirects: true
       preferred_ip_protocol: "ip4"
-      tls_config:
-        insecure_skip_verify: false
 
   http_post_2xx:
     prober: http
@@ -19,15 +17,12 @@ modules:
       method: POST
       headers:
         Content-Type: application/json
-      body: '{}'
-      valid_status_codes: [200, 201]
+      body: "{}"
+      valid_status_codes: [200, 201, 202]
+      preferred_ip_protocol: "ip4"
 
   tcp_connect:
     prober: tcp
-    timeout: 10s
-
-  icmp_ping:
-    prober: icmp
-    timeout: 10s
-    icmp:
+    timeout: 5s
+    tcp:
       preferred_ip_protocol: "ip4"
