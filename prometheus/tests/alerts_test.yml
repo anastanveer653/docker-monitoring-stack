@@ -86,6 +86,126 @@ tests:
               description: "Disk usage is 85% (threshold 80%)."
               runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskspacelow"
 
+  # ── Host memory: 90% used -> warning ────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{instance="docker-host",job="node-exporter"}'
+        values: "100x15"
+      - series: 'node_memory_MemTotal_bytes{instance="docker-host",job="node-exporter"}'
+        values: "1000x15"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HostHighMemoryUsage
+        exp_alerts: []            # still pending (for: 5m)
+      - eval_time: 10m
+        alertname: HostHighMemoryUsage
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              job: node-exporter
+            exp_annotations:
+              summary: "High memory usage on docker-host"
+              description: "Memory usage is 90% (threshold 85%)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighmemoryusage"
+
+  # ── Disk: predictive alert fires only for the filling disk ──
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "100000-100x150"  # loses 100 bytes/min -> empty in ~16h
+      - series: 'node_filesystem_readonly{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "0x150"
+      - series: 'node_filesystem_avail_bytes{instance="docker-host",device="/dev/sdb1",mountpoint="/data",fstype="ext4"}'
+        values: "100000x150"      # stable
+      - series: 'node_filesystem_readonly{instance="docker-host",device="/dev/sdb1",mountpoint="/data",fstype="ext4"}'
+        values: "0x150"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HostDiskWillFillIn24Hours
+        exp_alerts: []            # still pending (for: 1h)
+      - eval_time: 120m
+        alertname: HostDiskWillFillIn24Hours
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              device: /dev/sda1
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: "Disk / on docker-host will fill within 24h"
+              description: "At the current write rate the filesystem runs out of space within 24 hours."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostdiskwillfillin24hours"
+
+  # ── Disk: inodes almost exhausted ───────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_files_free{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "50x15"
+      - series: 'node_filesystem_files{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "1000x15"
+      - series: 'node_filesystem_readonly{instance="docker-host",device="/dev/sda1",mountpoint="/",fstype="ext4"}'
+        values: "0x15"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HostOutOfInodes
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              device: /dev/sda1
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: "Running out of inodes on docker-host (/)"
+              description: "Only 5% of inodes are free."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostoutofinodes"
+
+  # ── Host load: 3x the core count for 15 minutes ─────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_load5{instance="docker-host",job="node-exporter"}'
+        values: "3x30"
+      - series: 'node_cpu_seconds_total{cpu="0",mode="idle",instance="docker-host",job="node-exporter"}'
+        values: "0+60x30"         # one core
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HostHighLoad
+        exp_alerts: []            # still pending (for: 15m)
+      - eval_time: 20m
+        alertname: HostHighLoad
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              job: node-exporter
+            exp_annotations:
+              summary: "High load average on docker-host"
+              description: "5-minute load average is 3.00x the number of CPU cores."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hosthighload"
+
+  # ── Host: kernel OOM killer ran ─────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'node_vmstat_oom_kill{instance="docker-host",job="node-exporter"}'
+        values: "0x5 1x10"        # one OOM kill at t=6m
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HostOomKillDetected
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: HostOomKillDetected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: docker-host
+              job: node-exporter
+            exp_annotations:
+              summary: "OOM kill detected on docker-host"
+              description: "The kernel OOM killer terminated at least one process in the last 5 minutes."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#hostoomkilldetected"
+
   # ── Containers: only containers WITH a memory limit alert ───
   # Regression test: an unlimited container reports limit=0, which used to
   # divide to +Inf and fire for every container.
@@ -131,6 +251,46 @@ tests:
               description: "Container web was running in the last 15 minutes but has not been seen for 5m 0s."
               runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerdown"
 
+  # ── Containers: sustained CPU usage ─────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{name="api",id="/docker/a",cpu="total"}'
+        values: "0+54x30"         # 54 CPU-seconds per minute = 0.9 cores
+      - series: 'container_cpu_usage_seconds_total{name="idle",id="/docker/b",cpu="total"}'
+        values: "0+6x30"          # 0.1 cores — must not alert
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ContainerHighCpuUsage
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: api
+            exp_annotations:
+              summary: "Container api high CPU"
+              description: "Container api is using 90% of one CPU core."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containerhighcpuusage"
+
+  # ── Containers: OOM kill ────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'container_oom_events_total{name="api",id="/docker/a"}'
+        values: "0x5 1x10"        # one OOM event at t=6m
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerOomKilled
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ContainerOomKilled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: api
+              id: /docker/a
+            exp_annotations:
+              summary: "Container api was OOM-killed"
+              description: "Container api hit its memory limit and was killed by the kernel."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#containeroomkilled"
+
   # ── Endpoints: probe failures ───────────────────────────────
   - interval: 1m
     input_series:
@@ -151,6 +311,26 @@ tests:
               summary: "Endpoint https://example.com is down"
               description: "Probe blackbox-http has been failing for more than 2 minutes."
               runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#endpointdown"
+
+  # ── Endpoints: slow responses ───────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'probe_duration_seconds{instance="https://example.com",job="blackbox-http"}'
+        values: "3x20"
+      - series: 'probe_duration_seconds{instance="https://fast.example.com",job="blackbox-http"}'
+        values: "0.2x20"          # must not alert
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EndpointSlowResponse
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: https://example.com
+              job: blackbox-http
+            exp_annotations:
+              summary: "Slow response from https://example.com"
+              description: "Average probe duration is 3s (threshold 2s)."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#endpointslowresponse"
 
   # ── Endpoints: certificate expiring in 10 days -> warning ───
   - interval: 1m
@@ -196,3 +376,101 @@ tests:
               summary: "Alerting pipeline heartbeat"
               description: "This alert is always firing. If it stops arriving, the alerting pipeline is broken."
               runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#watchdog"
+
+  # ── Stack: Prometheus config reload failed ──────────────────
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_config_last_reload_successful{instance="localhost:9090",job="prometheus"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PrometheusConfigReloadFailed
+        exp_alerts: []            # still pending (for: 5m)
+      - eval_time: 7m
+        alertname: PrometheusConfigReloadFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: localhost:9090
+              job: prometheus
+            exp_annotations:
+              summary: "Prometheus configuration reload failed"
+              description: "The last configuration reload failed; Prometheus is still running the previous config."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusconfigreloadfailed"
+
+  # ── Stack: rule evaluation failures ─────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_rule_evaluation_failures_total{instance="localhost:9090",job="prometheus",rule_group="host.rules"}'
+        values: "0+1x20"          # one failure per minute
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PrometheusRuleEvaluationFailures
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: localhost:9090
+              job: prometheus
+              rule_group: host.rules
+            exp_annotations:
+              summary: "Prometheus rule evaluation failures"
+              description: "5 rule evaluations failed in the last 5 minutes. Alerts may be missed."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusruleevaluationfailures"
+
+  # ── Stack: no Alertmanager discovered ───────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_notifications_alertmanagers_discovered{instance="localhost:9090",job="prometheus"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: PrometheusAlertmanagerUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: localhost:9090
+              job: prometheus
+            exp_annotations:
+              summary: "Prometheus cannot reach Alertmanager"
+              description: "No Alertmanager instance is discovered; alerts are not being delivered."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#prometheusalertmanagerunreachable"
+
+  # ── Stack: Alertmanager config reload failed ────────────────
+  - interval: 1m
+    input_series:
+      - series: 'alertmanager_config_last_reload_successful{instance="alertmanager:9093",job="alertmanager"}'
+        values: "1x3 0x10"        # a reload fails at t=4m
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AlertmanagerConfigReloadFailed
+        exp_alerts: []            # still pending (for: 5m)
+      - eval_time: 10m
+        alertname: AlertmanagerConfigReloadFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: alertmanager:9093
+              job: alertmanager
+            exp_annotations:
+              summary: "Alertmanager configuration reload failed"
+              description: "The last Alertmanager configuration reload failed; it is still running the previous config."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#alertmanagerconfigreloadfailed"
+
+  # ── Stack: notifications failing, grouped per integration ───
+  - interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{instance="alertmanager:9093",job="alertmanager",integration="slack",reason="other"}'
+        values: "0+1x20"
+      - series: 'alertmanager_notifications_failed_total{instance="alertmanager:9093",job="alertmanager",integration="email",reason="other"}'
+        values: "0x20"            # healthy — must not alert
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              integration: slack
+            exp_annotations:
+              summary: "Alertmanager is failing to send slack notifications"
+              description: "Notifications through slack have been failing for 5 minutes."
+              runbook_url: "https://github.com/anastanveer653/docker-monitoring-stack/blob/main/docs/runbooks.md#alertmanagernotificationsfailing"

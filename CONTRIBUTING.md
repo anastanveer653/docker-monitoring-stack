@@ -30,6 +30,9 @@ the same version as `docker-compose.yml`.
 - Add a section to [`docs/runbooks.md`](docs/runbooks.md) (the anchor is the alert
   name in lower case).
 - Add a test case to [`prometheus/tests/alerts_test.yml`](prometheus/tests/alerts_test.yml).
+  Where it makes sense, include a series that must **not** alert.
+
+`./scripts/validate.sh` (and CI) fails if any alert is missing a test or a runbook section.
 
 ## Changing a dashboard
 
