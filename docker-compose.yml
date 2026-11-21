@@ -30,7 +30,7 @@ services:
   # ── Prometheus ──────────────────────────────
   prometheus:
     <<: *defaults
-    image: prom/prometheus:v3.15.1
+    image: prom/prometheus:v3.16.0
     container_name: prometheus
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:9090:9090"
@@ -64,7 +64,7 @@ services:
   # ── Alertmanager ────────────────────────────
   alertmanager:
     <<: *defaults
-    image: prom/alertmanager:v0.34.2
+    image: prom/alertmanager:v0.35.0
     container_name: alertmanager
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:9093:9093"
@@ -92,7 +92,7 @@ services:
   # ── Grafana ─────────────────────────────────
   grafana:
     <<: *defaults
-    image: grafana/grafana:13.3.0
+    image: grafana/grafana:13.3.1
     container_name: grafana
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
@@ -157,7 +157,7 @@ services:
   # ── cAdvisor (container metrics) ────────────
   cadvisor:
     <<: *defaults
-    image: ghcr.io/google/cadvisor:v0.60.6
+    image: ghcr.io/google/cadvisor:v0.61.1
     container_name: cadvisor
     privileged: true            # Required to read cgroup stats for every container
     devices:
